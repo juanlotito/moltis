@@ -347,6 +347,7 @@ pub async fn prepare_gateway_core(
                             .collect(),
                         oauth,
                         display_name: entry.display_name.clone(),
+                        forward_context: entry.forward_context,
                     });
             }
         }

@@ -175,6 +175,12 @@ pub fn parse_server_config(
         None => existing.and_then(|cfg| cfg.display_name.clone()),
     };
 
+    let forward_context = params
+        .get("forward_context")
+        .and_then(|v| v.as_bool())
+        .or_else(|| existing.map(|cfg| cfg.forward_context))
+        .unwrap_or(false);
+
     Ok(McpServerConfig {
         command,
         args,
@@ -193,6 +199,7 @@ pub fn parse_server_config(
         headers,
         oauth,
         display_name,
+        forward_context,
     })
 }
 
@@ -339,6 +346,7 @@ mod tests {
             },
             oauth: None,
             display_name: Some("My Server".to_string()),
+            forward_context: false,
         };
 
         // Update only display_name, rest should be preserved
@@ -382,6 +390,7 @@ mod tests {
                 scopes: vec!["read".to_string()],
             }),
             display_name: None,
+            forward_context: false,
         };
 
         let cfg = parse_server_config(
@@ -452,6 +461,7 @@ mod tests {
             },
             oauth: None,
             display_name: None,
+            forward_context: false,
         };
 
         // Replace X-Replace, don't mention X-Keep
@@ -495,6 +505,7 @@ mod tests {
             },
             oauth: None,
             display_name: None,
+            forward_context: false,
         };
 
         let cfg = parse_server_config(
@@ -544,6 +555,7 @@ mod tests {
             headers: HashMap::new(),
             oauth: None,
             display_name: None,
+            forward_context: false,
         };
 
         // Omit timeout — should preserve existing
@@ -596,6 +608,7 @@ mod tests {
             headers: HashMap::new(),
             oauth: None,
             display_name: None,
+            forward_context: false,
         };
 
         let cfg = parse_server_config(
@@ -637,6 +650,7 @@ mod tests {
             headers: HashMap::new(),
             oauth: None,
             display_name: None,
+            forward_context: false,
         };
 
         let cfg = parse_server_config(

@@ -537,6 +537,8 @@ port = {port}                           # Port number (auto-generated for this i
 # args = ["-y", "@package/name"]    # Command arguments
 # env = {{ KEY = "value" }}           # Environment variables
 # transport = "stdio"               # "stdio" | "sse" | "streamable-http"
+# forward_context = false           # Forward _channel/_session_key to tool calls
+#                                   # (only for trusted servers that resolve sender identity)
 
 # [mcp.servers.server-name.oauth]
 # client_id = "your-client-id"       # Manual OAuth client ID

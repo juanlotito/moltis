@@ -265,6 +265,7 @@ pub(super) fn build_schema_map() -> KnownKeys {
             ("headers", Map(Box::new(Leaf))),
             ("oauth", mcp_oauth_override()),
             ("display_name", Leaf),
+            ("forward_context", Leaf),
         ]))
     };
 

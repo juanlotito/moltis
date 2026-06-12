@@ -660,10 +660,15 @@ impl McpManager {
 
         for (name, client) in inner.clients.iter() {
             if let Some(tool_defs) = inner.tools.get(name) {
+                let forward_context = inner
+                    .registry
+                    .get(name)
+                    .is_some_and(|cfg| cfg.forward_context);
                 bridges.extend(McpToolBridge::from_client(
                     name,
                     tool_defs,
                     Arc::clone(client),
+                    forward_context,
                 ));
             }
         }

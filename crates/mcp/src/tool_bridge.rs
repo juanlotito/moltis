@@ -48,6 +48,9 @@ pub struct McpToolBridge {
     description: String,
     input_schema: serde_json::Value,
     client: Arc<tokio::sync::RwLock<dyn McpClientTrait>>,
+    /// Forward channel context keys (`_channel`, `_session_key`) instead of
+    /// stripping them. Per-server opt-in via `McpServerConfig::forward_context`.
+    forward_context: bool,
 }
 
 impl McpToolBridge {
@@ -56,6 +59,7 @@ impl McpToolBridge {
         server_name: &str,
         tool_def: &McpToolDef,
         client: Arc<tokio::sync::RwLock<dyn McpClientTrait>>,
+        forward_context: bool,
     ) -> Self {
         Self {
             prefixed_name: format!("mcp__{}__{}", server_name, tool_def.name),
@@ -67,6 +71,7 @@ impl McpToolBridge {
                 .unwrap_or_else(|| format!("MCP tool: {}", tool_def.name)),
             input_schema: tool_def.input_schema.clone(),
             client,
+            forward_context,
         }
     }
 
@@ -75,10 +80,11 @@ impl McpToolBridge {
         server_name: &str,
         tools: &[McpToolDef],
         client: Arc<tokio::sync::RwLock<dyn McpClientTrait>>,
+        forward_context: bool,
     ) -> Vec<Self> {
         tools
             .iter()
-            .map(|t| Self::new(server_name, t, Arc::clone(&client)))
+            .map(|t| Self::new(server_name, t, Arc::clone(&client), forward_context))
             .collect()
     }
 
@@ -122,12 +128,23 @@ impl McpAgentTool for McpToolBridge {
         // Clean up arguments before forwarding to the MCP server:
         // 1. Strip internal metadata keys (e.g. _session_key) injected by the
         //    agent runner — these break servers with strict validation.
+        //    Exception: servers with `forward_context` enabled receive
+        //    `_channel` and `_session_key` so they can resolve sender identity.
         // 2. Strip null values — these arise from strict-mode schema patching
         //    that makes optional properties nullable.  MCP servers expect
         //    optional fields to be absent, not null.
+        let forward_context = self.forward_context;
         let params = match params {
             serde_json::Value::Object(mut map) => {
-                map.retain(|k, v| !k.starts_with('_') && !v.is_null());
+                map.retain(|k, v| {
+                    if v.is_null() {
+                        return false;
+                    }
+                    if k.starts_with('_') {
+                        return forward_context && matches!(k.as_str(), "_channel" | "_session_key");
+                    }
+                    true
+                });
                 strip_nulls_recursive(&mut map);
                 serde_json::Value::Object(map)
             },
@@ -255,7 +272,7 @@ mod tests {
             description: Some("Read a file".to_string()),
             input_schema: serde_json::json!({"type": "object"}),
         };
-        let bridge = McpToolBridge::new("fs", &tool_def, client);
+        let bridge = McpToolBridge::new("fs", &tool_def, client, false);
 
         let params = serde_json::json!({
             "path": "/tmp/test.txt",
@@ -285,6 +302,53 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_execute_forwards_channel_context_when_enabled() {
+        let received = Arc::new(tokio::sync::Mutex::new(None));
+        let client = MockMcpClient {
+            received_args: Arc::clone(&received),
+        };
+        let client: Arc<RwLock<dyn McpClientTrait>> = Arc::new(RwLock::new(client));
+
+        let tool_def = McpToolDef {
+            name: "whoami".to_string(),
+            description: Some("Resolve sender".to_string()),
+            input_schema: serde_json::json!({"type": "object"}),
+        };
+        let bridge = McpToolBridge::new("assistant", &tool_def, client, true);
+
+        let params = serde_json::json!({
+            "query": "today",
+            "_channel": {"sender_id": "15551234567@s.whatsapp.net", "chat_id": "c1"},
+            "_session_key": "whatsapp:main:c1",
+            "_accept_language": "en",
+            "_conn_id": "conn-42"
+        });
+
+        let result = bridge.execute(params).await;
+        assert!(result.is_ok());
+
+        let forwarded = received.lock().await.take().expect("call_tool was called");
+        let map = forwarded.as_object().expect("args should be an object");
+
+        // Real parameters and channel context are forwarded.
+        assert_eq!(map.get("query").and_then(|v| v.as_str()), Some("today"));
+        assert_eq!(
+            map.get("_channel")
+                .and_then(|v| v.get("sender_id"))
+                .and_then(|v| v.as_str()),
+            Some("15551234567@s.whatsapp.net")
+        );
+        assert_eq!(
+            map.get("_session_key").and_then(|v| v.as_str()),
+            Some("whatsapp:main:c1")
+        );
+
+        // Other internal metadata keys are still stripped.
+        assert!(!map.contains_key("_accept_language"));
+        assert!(!map.contains_key("_conn_id"));
+    }
+
+    #[tokio::test]
     async fn test_execute_passes_non_object_params_unchanged() {
         let received = Arc::new(tokio::sync::Mutex::new(None));
         let client = MockMcpClient {
@@ -297,7 +361,7 @@ mod tests {
             description: Some("Echo".to_string()),
             input_schema: serde_json::json!({"type": "string"}),
         };
-        let bridge = McpToolBridge::new("test", &tool_def, client);
+        let bridge = McpToolBridge::new("test", &tool_def, client, false);
 
         let params = serde_json::json!("hello");
         let result = bridge.execute(params).await;
@@ -320,7 +384,7 @@ mod tests {
             description: Some("Add a task".to_string()),
             input_schema: serde_json::json!({"type": "object"}),
         };
-        let bridge = McpToolBridge::new("todoist", &tool_def, client);
+        let bridge = McpToolBridge::new("todoist", &tool_def, client, false);
 
         // Simulate what the LLM sends when optional fields are nullable:
         // real values for used fields, null for unused optional fields.
@@ -367,7 +431,7 @@ mod tests {
             description: Some("Create".to_string()),
             input_schema: serde_json::json!({"type": "object"}),
         };
-        let bridge = McpToolBridge::new("svc", &tool_def, client);
+        let bridge = McpToolBridge::new("svc", &tool_def, client, false);
 
         let params = serde_json::json!({
             "tasks": [

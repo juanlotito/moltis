@@ -93,6 +93,12 @@ pub struct McpServerConfig {
     /// Custom display name for the server (shown in UI instead of technical ID).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub display_name: Option<String>,
+    /// Forward channel context (`_channel`, `_session_key`) to this server's
+    /// tool calls. Off by default: third-party servers with strict schema
+    /// validation reject unknown fields. Enable for trusted servers that
+    /// resolve sender identity (e.g. multi-user personal assistants).
+    #[serde(default)]
+    pub forward_context: bool,
 }
 
 fn default_true() -> bool {
@@ -112,6 +118,7 @@ impl Default for McpServerConfig {
             headers: HashMap::new(),
             oauth: None,
             display_name: None,
+            forward_context: false,
         }
     }
 }
