@@ -392,7 +392,10 @@ async fn handle_message(
         return;
     }
 
-    // Check for slash commands.
+    // Check for slash commands. Commands moltis doesn't know fall through to
+    // the normal message path so MessageReceived hooks (and ultimately the
+    // agent) can handle them — external automations register their own slash
+    // commands that the channel dispatcher has no business rejecting.
     if let Some(cmd) = text.strip_prefix('/') {
         let reply_to = ChannelReplyTarget {
             channel_type: ChannelType::Whatsapp,
@@ -401,27 +404,32 @@ async fn handle_message(
             message_id: Some(info.id.to_string()),
             thread_id: None,
         };
-        if let Some(ref sink) = state.event_sink {
-            match sink.dispatch_command(cmd, reply_to, Some(&peer_id)).await {
-                Ok(response) => {
-                    let outbound_msg = wa::Message {
-                        conversation: Some(response),
-                        ..Default::default()
-                    };
-                    if let Err(e) = state.send_message(chat_jid.clone(), outbound_msg).await {
-                        warn!(error = %e, "failed to send command response");
-                    }
-                },
-                Err(e) => {
-                    let error_msg = wa::Message {
-                        conversation: Some(format!("Error: {e}")),
-                        ..Default::default()
-                    };
-                    let _ = state.send_message(chat_jid.clone(), error_msg).await;
-                },
-            }
+        let Some(ref sink) = state.event_sink else {
+            return;
+        };
+        match sink.dispatch_command(cmd, reply_to, Some(&peer_id)).await {
+            Ok(response) => {
+                let outbound_msg = wa::Message {
+                    conversation: Some(response),
+                    ..Default::default()
+                };
+                if let Err(e) = state.send_message(chat_jid.clone(), outbound_msg).await {
+                    warn!(error = %e, "failed to send command response");
+                }
+                return;
+            },
+            Err(e) if e.to_string().contains("unknown command") => {
+                debug!(command = %cmd, "unknown slash command; falling through to chat");
+            },
+            Err(e) => {
+                let error_msg = wa::Message {
+                    conversation: Some(format!("Error: {e}")),
+                    ..Default::default()
+                };
+                let _ = state.send_message(chat_jid.clone(), error_msg).await;
+                return;
+            },
         }
-        return;
     }
 
     let account_id = &state.account_id;
