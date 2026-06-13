@@ -294,6 +294,23 @@ pub enum HookAction {
     Block(String),
 }
 
+/// Marker prefix for `Block` reasons that must not be surfaced to the sender.
+///
+/// Hooks that fully handle a message out-of-band (e.g. an external daemon
+/// that already replied through the channel itself) emit it to stop the turn
+/// without the sender seeing a rejection notice. Shell hooks produce it via
+/// stderr: `echo "@silent handled" >&2; exit 1`.
+pub const SILENT_BLOCK_MARKER: &str = "@silent";
+
+/// Splits a `Block` reason into `(silent, reason_without_marker)`.
+#[must_use]
+pub fn parse_silent_block(reason: &str) -> (bool, &str) {
+    match reason.strip_prefix(SILENT_BLOCK_MARKER) {
+        Some(rest) => (true, rest.trim_start()),
+        None => (false, reason),
+    }
+}
+
 // ── HookHandler trait ───────────────────────────────────────────────────────
 
 /// Trait implemented by both native and shell hook handlers.
@@ -990,6 +1007,24 @@ mod tests {
 
         let result = registry.dispatch(&modifying_payload()).await.unwrap();
         assert!(matches!(result, HookAction::Continue));
+    }
+
+    #[test]
+    fn parse_silent_block_strips_marker_and_flags_silent() {
+        assert_eq!(
+            parse_silent_block("@silent botito-core handled"),
+            (true, "botito-core handled")
+        );
+        assert_eq!(parse_silent_block("@silent"), (true, ""));
+        assert_eq!(
+            parse_silent_block("blocked by policy"),
+            (false, "blocked by policy")
+        );
+        // The marker only counts as a prefix.
+        assert_eq!(
+            parse_silent_block("rate limited @silent"),
+            (false, "rate limited @silent")
+        );
     }
 
     #[test]

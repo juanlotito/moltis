@@ -697,7 +697,10 @@ impl LiveChatService {
         //     inbound text before it is persisted or sent to the model;
         //   - return `Block(reason)` → abort this turn entirely. The user
         //     message is NOT persisted, no run is started, and the reason
-        //     is surfaced to the channel/web sender.
+        //     is surfaced to the channel/web sender — unless the reason
+        //     carries the `@silent` marker (see `SILENT_BLOCK_MARKER`),
+        //     meaning the hook already handled the message out-of-band and
+        //     the sender must not receive a rejection notice.
         //
         // Hook errors are treated as fail-open: a broken hook must not be
         // able to wedge every inbound message. See GH #639.
@@ -747,10 +750,13 @@ impl LiveChatService {
                         },
                     }
                 },
-                Ok(moltis_common::hooks::HookAction::Block(reason)) => {
+                Ok(moltis_common::hooks::HookAction::Block(raw_reason)) => {
+                    let (silent, reason) = moltis_common::hooks::parse_silent_block(&raw_reason);
+                    let reason = reason.to_string();
                     info!(
                         session = %session_key,
                         reason = %reason,
+                        silent,
                         "MessageReceived hook blocked inbound message"
                     );
 
@@ -759,7 +765,9 @@ impl LiveChatService {
                     // attached a reply target (web-UI-on-bound-session or an
                     // inbound channel message), re-register it so
                     // `deliver_channel_error` has a destination to drain.
-                    if let Some(target) = deferred_channel_target.clone() {
+                    // Silent blocks skip this entirely: the hook already
+                    // answered the sender out-of-band.
+                    if !silent && let Some(target) = deferred_channel_target.clone() {
                         self.state.push_channel_reply(&session_key, target).await;
                         let error_obj = serde_json::json!({
                             "type": "message_rejected",
@@ -776,6 +784,7 @@ impl LiveChatService {
                             "state": "rejected",
                             "sessionKey": session_key,
                             "reason": reason,
+                            "silent": silent,
                         }),
                         BroadcastOpts::default(),
                     )
@@ -784,6 +793,7 @@ impl LiveChatService {
                     return Ok(serde_json::json!({
                         "ok": false,
                         "rejected": true,
+                        "silent": silent,
                         "reason": reason,
                     }));
                 },
