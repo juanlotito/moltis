@@ -52,12 +52,12 @@ fn current_config(
 
 /// Process an incoming whatsapp-rust event for the given account.
 pub async fn handle_event(
-    event: Event,
+    event: Arc<Event>,
     client: Arc<Client>,
     state: Arc<AccountState>,
     accounts: AccountStateMap,
 ) {
-    match event {
+    match event.as_ref() {
         Event::PairingQrCode { code, .. } => {
             info!(account_id = %state.account_id, "QR code generated for pairing");
 
@@ -71,7 +71,7 @@ pub async fn handle_event(
                 sink.emit(ChannelEvent::PairingQrCode {
                     channel_type: ChannelType::Whatsapp,
                     account_id: state.account_id.clone(),
-                    qr_data: code,
+                    qr_data: code.clone(),
                 })
                 .await;
             }
@@ -111,7 +111,7 @@ pub async fn handle_event(
                 .await;
             }
         },
-        Event::PairSuccess(ref pair) => {
+        Event::PairSuccess(pair) => {
             info!(account_id = %state.account_id, jid = %pair.id, "WhatsApp pairing succeeded");
 
             // Clear QR immediately so the UI stops showing it.
@@ -161,17 +161,24 @@ pub async fn handle_event(
             }
         },
         Event::Message(msg, msg_info) => {
-            handle_message(msg, msg_info, &client, &state, &accounts).await;
+            handle_message(
+                Arc::clone(msg),
+                Arc::clone(msg_info),
+                &client,
+                &state,
+                &accounts,
+            )
+            .await;
         },
         _ => {
-            debug!(account_id = %state.account_id, event = ?std::mem::discriminant(&event), "unhandled WhatsApp event");
+            debug!(account_id = %state.account_id, event = ?std::mem::discriminant(event.as_ref()), "unhandled WhatsApp event");
         },
     }
 }
 
 async fn handle_message(
-    msg: Box<wa::Message>,
-    info: MessageInfo,
+    msg: Arc<wa::Message>,
+    info: Arc<MessageInfo>,
     client: &Client,
     state: &AccountState,
     accounts: &AccountStateMap,
@@ -190,7 +197,7 @@ async fn handle_message(
     let chat_id = chat_jid.to_string();
     // Use the sender's user part as display username.  Resolved later for
     // self-chat so the phone number appears instead of the opaque LID.
-    let mut username = sender_jid.user.clone();
+    let mut username = sender_jid.user.to_string();
     let sender_name = if info.push_name.is_empty() {
         None
     } else {
@@ -271,8 +278,8 @@ async fn handle_message(
     // outbound layer resolves it to a full PN JID before sending.
     let chat_id = if is_owner_self_chat {
         if let Some(ref pn) = own_pn {
-            username = pn.user.clone();
-            pn.user.clone()
+            username = pn.user.to_string();
+            pn.user.to_string()
         } else {
             chat_id
         }

@@ -1,12 +1,12 @@
 use {
     async_trait::async_trait,
     base64::Engine,
-    tracing::{debug, info, warn},
+    tracing::{debug, info},
 };
 
 use {
     wacore::download::MediaType,
-    wacore_binary::jid::{HIDDEN_USER_SERVER, Jid},
+    wacore_binary::jid::Jid,
     waproto::whatsapp as wa,
     whatsapp_rust::{ChatStateType, upload::UploadResponse},
 };
@@ -28,42 +28,6 @@ fn resolve_jid(to: &str) -> ChannelResult<Jid> {
             .map_err(|e| moltis_channels::Error::invalid_input(format!("invalid JID: {e:?}")))
     } else {
         Ok(Jid::pn(to))
-    }
-}
-
-/// Whether a destination JID is keyed by LID and must be re-addressed to its
-/// phone number before sending.
-fn needs_lid_resolution(jid: &Jid) -> bool {
-    jid.server == HIDDEN_USER_SERVER
-}
-
-/// Rewrite a `@lid` destination to its phone-number JID when a mapping exists.
-///
-/// Stanzas addressed to `@lid` chats are accepted by the server but never
-/// delivered (no `Delivered` receipt), while the same message sent to the
-/// mapped PN JID arrives normally. Inbound chats from privacy-enabled senders
-/// are keyed by LID, so replies must be re-addressed before sending. When no
-/// mapping is known the JID is returned unchanged so behaviour matches the
-/// pre-fix path.
-async fn to_deliverable_jid(client: &whatsapp_rust::client::Client, jid: Jid) -> Jid {
-    if !needs_lid_resolution(&jid) {
-        return jid;
-    }
-    match client.get_phone_number_from_lid(&jid.user).await {
-        Some(pn) => {
-            debug!(lid = %jid, pn = %pn, "rewriting LID destination to PN JID");
-            Jid::pn(pn)
-        },
-        None => {
-            // No mapping known: the message goes to the `@lid` JID, which the
-            // server is likely to drop without a `Delivered` receipt. Warn so
-            // the undelivered reply is visible without enabling debug logging.
-            warn!(
-                lid = %jid,
-                "no PN mapping for LID destination; reply may not be delivered"
-            );
-            jid
-        },
     }
 }
 
@@ -106,9 +70,9 @@ fn build_media_message(
                 caption,
                 url: Some(upload.url.clone()),
                 direct_path: Some(upload.direct_path.clone()),
-                media_key: Some(upload.media_key.clone()),
-                file_sha256: Some(upload.file_sha256.clone()),
-                file_enc_sha256: Some(upload.file_enc_sha256.clone()),
+                media_key: Some(upload.media_key.to_vec()),
+                file_sha256: Some(upload.file_sha256.to_vec()),
+                file_enc_sha256: Some(upload.file_enc_sha256.to_vec()),
                 file_length: Some(upload.file_length),
                 ..Default::default()
             })),
@@ -121,9 +85,9 @@ fn build_media_message(
                 caption,
                 url: Some(upload.url.clone()),
                 direct_path: Some(upload.direct_path.clone()),
-                media_key: Some(upload.media_key.clone()),
-                file_sha256: Some(upload.file_sha256.clone()),
-                file_enc_sha256: Some(upload.file_enc_sha256.clone()),
+                media_key: Some(upload.media_key.to_vec()),
+                file_sha256: Some(upload.file_sha256.to_vec()),
+                file_enc_sha256: Some(upload.file_enc_sha256.to_vec()),
                 file_length: Some(upload.file_length),
                 ..Default::default()
             })),
@@ -135,9 +99,9 @@ fn build_media_message(
                 mimetype: Some(mime.to_string()),
                 url: Some(upload.url.clone()),
                 direct_path: Some(upload.direct_path.clone()),
-                media_key: Some(upload.media_key.clone()),
-                file_sha256: Some(upload.file_sha256.clone()),
-                file_enc_sha256: Some(upload.file_enc_sha256.clone()),
+                media_key: Some(upload.media_key.to_vec()),
+                file_sha256: Some(upload.file_sha256.to_vec()),
+                file_enc_sha256: Some(upload.file_enc_sha256.to_vec()),
                 file_length: Some(upload.file_length),
                 ..Default::default()
             })),
@@ -150,9 +114,9 @@ fn build_media_message(
                 title: caption,
                 url: Some(upload.url.clone()),
                 direct_path: Some(upload.direct_path.clone()),
-                media_key: Some(upload.media_key.clone()),
-                file_sha256: Some(upload.file_sha256.clone()),
-                file_enc_sha256: Some(upload.file_enc_sha256.clone()),
+                media_key: Some(upload.media_key.to_vec()),
+                file_sha256: Some(upload.file_sha256.to_vec()),
+                file_enc_sha256: Some(upload.file_enc_sha256.to_vec()),
                 file_length: Some(upload.file_length),
                 ..Default::default()
             })),
@@ -197,7 +161,9 @@ impl ChannelOutbound for WhatsAppOutbound {
         _reply_to: Option<&str>,
     ) -> ChannelResult<()> {
         let client = self.get_client(account_id)?;
-        let jid = to_deliverable_jid(&client, resolve_jid(to)?).await;
+        // whatsapp-rust 0.6 addresses LID/PN destinations natively, so the
+        // JID is passed through as-is (no LID→PN rewrite needed).
+        let jid = resolve_jid(to)?;
 
         debug!(
             account_id,
@@ -212,11 +178,11 @@ impl ChannelOutbound for WhatsAppOutbound {
             conversation: Some(watermarked),
             ..Default::default()
         };
-        let msg_id = client
+        let sent = client
             .send_message(jid, msg)
             .await
             .map_err(|e| moltis_channels::Error::unavailable(format!("whatsapp send_text: {e}")))?;
-        self.record_sent_id(account_id, &msg_id);
+        self.record_sent_id(account_id, &sent.message_id);
 
         #[cfg(feature = "metrics")]
         moltis_metrics::counter!(
@@ -270,18 +236,21 @@ impl ChannelOutbound for WhatsAppOutbound {
         );
 
         let client = self.get_client(account_id)?;
-        let jid = to_deliverable_jid(&client, resolve_jid(to)?).await;
+        let jid = resolve_jid(to)?;
 
-        let upload = client.upload(bytes, media_type).await.map_err(|e| {
-            moltis_channels::Error::unavailable(format!("whatsapp media upload: {e}"))
-        })?;
+        let upload = client
+            .upload(bytes, media_type, Default::default())
+            .await
+            .map_err(|e| {
+                moltis_channels::Error::unavailable(format!("whatsapp media upload: {e}"))
+            })?;
 
         let msg = build_media_message(&media.mime_type, caption, &upload);
 
-        let msg_id = client.send_message(jid, msg).await.map_err(|e| {
+        let sent = client.send_message(jid, msg).await.map_err(|e| {
             moltis_channels::Error::unavailable(format!("whatsapp send_media: {e}"))
         })?;
-        self.record_sent_id(account_id, &msg_id);
+        self.record_sent_id(account_id, &sent.message_id);
 
         #[cfg(feature = "metrics")]
         moltis_metrics::counter!(
@@ -296,7 +265,7 @@ impl ChannelOutbound for WhatsAppOutbound {
 
     async fn send_typing(&self, account_id: &str, to: &str) -> ChannelResult<()> {
         let client = self.get_client(account_id)?;
-        let jid = to_deliverable_jid(&client, resolve_jid(to)?).await;
+        let jid = resolve_jid(to)?;
         client
             .chatstate()
             .send(&jid, ChatStateType::Composing)
@@ -349,34 +318,17 @@ mod tests {
     use super::*;
 
     #[test]
-    fn needs_lid_resolution_true_for_lid_jid() {
-        let jid: Jid = "111111111111111@lid"
-            .parse()
-            .unwrap_or_else(|e| panic!("parse lid jid: {e:?}"));
-        assert!(needs_lid_resolution(&jid));
+    fn resolve_jid_passes_lid_through_unchanged() {
+        // whatsapp-rust 0.6 handles LID addressing natively; the destination
+        // JID must reach the client as-is, without LID→PN rewriting.
+        let jid = resolve_jid("111111111111111@lid").unwrap_or_else(|e| panic!("resolve: {e:?}"));
+        assert_eq!(jid.to_string(), "111111111111111@lid");
     }
 
     #[test]
-    fn needs_lid_resolution_false_for_phone_number_jid() {
-        let jid: Jid = "15551234567@s.whatsapp.net"
-            .parse()
-            .unwrap_or_else(|e| panic!("parse pn jid: {e:?}"));
-        assert!(!needs_lid_resolution(&jid));
-    }
-
-    #[test]
-    fn needs_lid_resolution_false_for_group_jid() {
-        let jid: Jid = "120363456789@g.us"
-            .parse()
-            .unwrap_or_else(|e| panic!("parse group jid: {e:?}"));
-        assert!(!needs_lid_resolution(&jid));
-    }
-
-    #[test]
-    fn needs_lid_resolution_false_for_bare_phone_number() {
-        // `resolve_jid` turns bare numbers into PN JIDs, which must not be rewritten.
+    fn resolve_jid_bare_number_becomes_pn() {
         let jid = resolve_jid("15551234567").unwrap_or_else(|e| panic!("resolve: {e:?}"));
-        assert!(!needs_lid_resolution(&jid));
+        assert_eq!(jid.to_string(), "15551234567@s.whatsapp.net");
     }
 
     #[test]
@@ -413,10 +365,11 @@ mod tests {
         let upload = UploadResponse {
             url: "https://example.com/img".into(),
             direct_path: "/path".into(),
-            media_key: vec![1, 2, 3],
-            file_sha256: vec![4, 5, 6],
-            file_enc_sha256: vec![7, 8, 9],
+            media_key: [1; 32],
+            file_sha256: [4; 32],
+            file_enc_sha256: [7; 32],
             file_length: 1024,
+            media_key_timestamp: 0,
         };
         let msg = build_media_message("image/png", Some("caption".into()), &upload);
         let img = msg
@@ -433,10 +386,11 @@ mod tests {
         let upload = UploadResponse {
             url: "https://example.com/vid".into(),
             direct_path: "/path".into(),
-            media_key: vec![],
-            file_sha256: vec![],
-            file_enc_sha256: vec![],
+            media_key: [0; 32],
+            file_sha256: [0; 32],
+            file_enc_sha256: [0; 32],
             file_length: 2048,
+            media_key_timestamp: 0,
         };
         let msg = build_media_message("video/mp4", None, &upload);
         let vid = msg
@@ -451,10 +405,11 @@ mod tests {
         let upload = UploadResponse {
             url: "https://example.com/aud".into(),
             direct_path: "/path".into(),
-            media_key: vec![],
-            file_sha256: vec![],
-            file_enc_sha256: vec![],
+            media_key: [0; 32],
+            file_sha256: [0; 32],
+            file_enc_sha256: [0; 32],
             file_length: 512,
+            media_key_timestamp: 0,
         };
         let msg = build_media_message("audio/ogg", None, &upload);
         assert!(msg.audio_message.is_some());
@@ -465,10 +420,11 @@ mod tests {
         let upload = UploadResponse {
             url: "https://example.com/doc".into(),
             direct_path: "/path".into(),
-            media_key: vec![],
-            file_sha256: vec![],
-            file_enc_sha256: vec![],
+            media_key: [0; 32],
+            file_sha256: [0; 32],
+            file_enc_sha256: [0; 32],
             file_length: 4096,
+            media_key_timestamp: 0,
         };
         let msg = build_media_message("application/pdf", Some("report.pdf".into()), &upload);
         let doc = msg

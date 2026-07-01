@@ -66,9 +66,9 @@ pub async fn start_connection(
         .with_runtime(whatsapp_rust::TokioRuntime)
         .skip_history_sync()
         .with_device_props(
-            Some("Moltis".to_string()),
-            None,
-            Some(waproto::whatsapp::device_props::PlatformType::Desktop),
+            wacore::store::DevicePropsOverride::new()
+                .with_os("Moltis")
+                .with_platform_type(waproto::whatsapp::device_props::PlatformType::Desktop),
         )
         .with_push_name("Moltis")
         .on_event(move |event, client| {

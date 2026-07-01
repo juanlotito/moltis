@@ -141,7 +141,8 @@ impl McpAgentTool for McpToolBridge {
                         return false;
                     }
                     if k.starts_with('_') {
-                        return forward_context && matches!(k.as_str(), "_channel" | "_session_key");
+                        return forward_context
+                            && matches!(k.as_str(), "_channel" | "_session_key");
                     }
                     true
                 });
