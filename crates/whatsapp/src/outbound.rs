@@ -1,7 +1,7 @@
 use {
     async_trait::async_trait,
     base64::Engine,
-    tracing::{debug, info},
+    tracing::{debug, info, warn},
 };
 
 use {
@@ -28,6 +28,40 @@ fn resolve_jid(to: &str) -> ChannelResult<Jid> {
             .map_err(|e| moltis_channels::Error::invalid_input(format!("invalid JID: {e:?}")))
     } else {
         Ok(Jid::pn(to))
+    }
+}
+
+/// Rewrite a `@lid` destination to its phone-number JID when a mapping exists.
+///
+/// Even on whatsapp-rust 0.6 (unified LID/PN addressing), stanzas sent from a
+/// companion device to a bare `@lid` chat are accepted by the server but never
+/// delivered (no `Delivered` receipt) — verified live 2026-07-01. The same
+/// message sent to the mapped PN JID arrives normally. Inbound chats from
+/// privacy-enabled senders are keyed by LID, so replies must be re-addressed
+/// before sending. When no mapping is known the JID is returned unchanged.
+async fn to_deliverable_jid(client: &whatsapp_rust::client::Client, jid: Jid) -> Jid {
+    if !jid.is_lid() {
+        return jid;
+    }
+    match client.get_lid_pn_entry(&jid).await {
+        Ok(Some(entry)) => {
+            debug!(lid = %jid, pn = %entry.phone_number, "rewriting LID destination to PN JID");
+            Jid::pn(entry.phone_number)
+        },
+        Ok(None) => {
+            // No mapping known: the message goes to the `@lid` JID, which the
+            // server is likely to drop without a `Delivered` receipt. Warn so
+            // the undelivered reply is visible without enabling debug logging.
+            warn!(
+                lid = %jid,
+                "no PN mapping for LID destination; reply may not be delivered"
+            );
+            jid
+        },
+        Err(e) => {
+            warn!(lid = %jid, error = ?e, "LID→PN lookup failed; sending to LID as-is");
+            jid
+        },
     }
 }
 
@@ -161,9 +195,7 @@ impl ChannelOutbound for WhatsAppOutbound {
         _reply_to: Option<&str>,
     ) -> ChannelResult<()> {
         let client = self.get_client(account_id)?;
-        // whatsapp-rust 0.6 addresses LID/PN destinations natively, so the
-        // JID is passed through as-is (no LID→PN rewrite needed).
-        let jid = resolve_jid(to)?;
+        let jid = to_deliverable_jid(&client, resolve_jid(to)?).await;
 
         debug!(
             account_id,
@@ -236,7 +268,7 @@ impl ChannelOutbound for WhatsAppOutbound {
         );
 
         let client = self.get_client(account_id)?;
-        let jid = resolve_jid(to)?;
+        let jid = to_deliverable_jid(&client, resolve_jid(to)?).await;
 
         let upload = client
             .upload(bytes, media_type, Default::default())
@@ -265,7 +297,7 @@ impl ChannelOutbound for WhatsAppOutbound {
 
     async fn send_typing(&self, account_id: &str, to: &str) -> ChannelResult<()> {
         let client = self.get_client(account_id)?;
-        let jid = resolve_jid(to)?;
+        let jid = to_deliverable_jid(&client, resolve_jid(to)?).await;
         client
             .chatstate()
             .send(&jid, ChatStateType::Composing)
@@ -319,10 +351,11 @@ mod tests {
 
     #[test]
     fn resolve_jid_passes_lid_through_unchanged() {
-        // whatsapp-rust 0.6 handles LID addressing natively; the destination
-        // JID must reach the client as-is, without LID→PN rewriting.
+        // Parsing must not alter the JID; the LID→PN rewrite happens later in
+        // `to_deliverable_jid` (needs a connected client for the lookup).
         let jid = resolve_jid("111111111111111@lid").unwrap_or_else(|e| panic!("resolve: {e:?}"));
         assert_eq!(jid.to_string(), "111111111111111@lid");
+        assert!(jid.is_lid());
     }
 
     #[test]
