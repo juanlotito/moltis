@@ -154,12 +154,12 @@ sqlx-sqlite = { git = "https://github.com/moltis-org/sqlx", rev = "33747ad2e2d0c
 # se entregan). Fork con el patch propuesto upstream; sacar cuando se
 # publique una release de whatsapp-rust que lo incluya. La familia entera se
 # patchea al mismo git para no duplicar wacore/waproto (tipos incompatibles).
-wacore                         = { branch = "feat/optional-pn-dm-addressing", git = "https://github.com/juanlotito/whatsapp-rust" }
-wacore-binary                  = { branch = "feat/optional-pn-dm-addressing", git = "https://github.com/juanlotito/whatsapp-rust" }
-waproto                        = { branch = "feat/optional-pn-dm-addressing", git = "https://github.com/juanlotito/whatsapp-rust" }
-whatsapp-rust                  = { branch = "feat/optional-pn-dm-addressing", git = "https://github.com/juanlotito/whatsapp-rust" }
-whatsapp-rust-tokio-transport  = { branch = "feat/optional-pn-dm-addressing", git = "https://github.com/juanlotito/whatsapp-rust" }
-whatsapp-rust-ureq-http-client = { branch = "feat/optional-pn-dm-addressing", git = "https://github.com/juanlotito/whatsapp-rust" }
+wacore                         = { branch = "test/v0.6.0-plus-731", git = "https://github.com/juanlotito/whatsapp-rust" }
+wacore-binary                  = { branch = "test/v0.6.0-plus-731", git = "https://github.com/juanlotito/whatsapp-rust" }
+waproto                        = { branch = "test/v0.6.0-plus-731", git = "https://github.com/juanlotito/whatsapp-rust" }
+whatsapp-rust                  = { branch = "test/v0.6.0-plus-731", git = "https://github.com/juanlotito/whatsapp-rust" }
+whatsapp-rust-tokio-transport  = { branch = "test/v0.6.0-plus-731", git = "https://github.com/juanlotito/whatsapp-rust" }
+whatsapp-rust-ureq-http-client = { branch = "test/v0.6.0-plus-731", git = "https://github.com/juanlotito/whatsapp-rust" }
 
 [workspace.lints.rust]
 unsafe_code           = "deny"

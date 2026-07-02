@@ -88,14 +88,19 @@ pub async fn start_connection(
 
     let client = bot.client();
 
-    // moltis always runs as a companion device; LID-addressed DMs from this
-    // kind of registration are accepted by the server but never delivered
-    // (verified live 2026-07-01: no Delivered receipt ever arrives, while PN
-    // addressing delivers in seconds). Pin outbound addressing to PN JIDs —
-    // combined with the LID→PN rewrite in outbound.rs this restores the
-    // proven pre-0.6 delivery path, while keeping 0.6's inbound LID session
-    // migration.
-    client.set_force_pn_addressing(true);
+    // moltis always runs as a companion device; on whatsapp-rust 0.6.0,
+    // LID-addressed DMs from this kind of registration were accepted by the
+    // server but never delivered (upstream #731 later showed the 0.6.0 DM
+    // stanza mixed a PN `to` with LID participants → silent `ack error=400`).
+    // Default to PN addressing (the proven delivery path, combined with the
+    // LID→PN rewrite in outbound.rs); MOLTIS_WA_FORCE_PN=0 opts into stock
+    // LID addressing to validate upstream's consistent-LID fix without a
+    // rebuild.
+    let force_pn = std::env::var("MOLTIS_WA_FORCE_PN")
+        .map(|v| v != "0")
+        .unwrap_or(true);
+    info!(force_pn, "WhatsApp outbound addressing mode");
+    client.set_force_pn_addressing(force_pn);
 
     // Create account state.
     let otp_cooldown = config.otp_cooldown_secs;
