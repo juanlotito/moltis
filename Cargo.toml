@@ -148,6 +148,18 @@ resolver = "2"
 # Remove once sqlx ≥ 0.9 ships stable.
 sqlx-core   = { git = "https://github.com/moltis-org/sqlx", rev = "33747ad2e2d0c7962c6450faf31591c4e0782c23" }
 sqlx-sqlite = { git = "https://github.com/moltis-org/sqlx", rev = "33747ad2e2d0c7962c6450faf31591c4e0782c23" }
+# whatsapp-rust 0.6.0 + fix de entrega de DMs desde companion device:
+# `Client::set_force_pn_addressing` evita el upgrade PN->LID del send path
+# (los DMs LID-addressed desde este registro companion se aceptan pero nunca
+# se entregan). Fork con el patch propuesto upstream; sacar cuando se
+# publique una release de whatsapp-rust que lo incluya. La familia entera se
+# patchea al mismo git para no duplicar wacore/waproto (tipos incompatibles).
+wacore                         = { branch = "feat/optional-pn-dm-addressing", git = "https://github.com/juanlotito/whatsapp-rust" }
+wacore-binary                  = { branch = "feat/optional-pn-dm-addressing", git = "https://github.com/juanlotito/whatsapp-rust" }
+waproto                        = { branch = "feat/optional-pn-dm-addressing", git = "https://github.com/juanlotito/whatsapp-rust" }
+whatsapp-rust                  = { branch = "feat/optional-pn-dm-addressing", git = "https://github.com/juanlotito/whatsapp-rust" }
+whatsapp-rust-tokio-transport  = { branch = "feat/optional-pn-dm-addressing", git = "https://github.com/juanlotito/whatsapp-rust" }
+whatsapp-rust-ureq-http-client = { branch = "feat/optional-pn-dm-addressing", git = "https://github.com/juanlotito/whatsapp-rust" }
 
 [workspace.lints.rust]
 unsafe_code           = "deny"

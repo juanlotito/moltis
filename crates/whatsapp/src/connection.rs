@@ -88,6 +88,15 @@ pub async fn start_connection(
 
     let client = bot.client();
 
+    // moltis always runs as a companion device; LID-addressed DMs from this
+    // kind of registration are accepted by the server but never delivered
+    // (verified live 2026-07-01: no Delivered receipt ever arrives, while PN
+    // addressing delivers in seconds). Pin outbound addressing to PN JIDs —
+    // combined with the LID→PN rewrite in outbound.rs this restores the
+    // proven pre-0.6 delivery path, while keeping 0.6's inbound LID session
+    // migration.
+    client.set_force_pn_addressing(true);
+
     // Create account state.
     let otp_cooldown = config.otp_cooldown_secs;
     let account_state = Arc::new(AccountState {

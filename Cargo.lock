@@ -13864,8 +13864,7 @@ checksum = "5c3082ca00d5a5ef149bb8b555a72ae84c9c59f7250f013ac822ac2e49b19c64"
 [[package]]
 name = "wacore"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7227b6c8bc63d4a0d119b7993147e7e2d99d522e1511306482f7fd506a83201"
+source = "git+https://github.com/juanlotito/whatsapp-rust?branch=feat%2Foptional-pn-dm-addressing#a616adf4fa2566789978a6f55ce81c4b5f65eeb3"
 dependencies = [
  "aes 0.9.0",
  "anyhow",
@@ -13906,8 +13905,7 @@ dependencies = [
 [[package]]
 name = "wacore-appstate"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cc1b8f857a5a9b7c653a7602fa3205a895282ada065b0c5891e0cd89d4f02289"
+source = "git+https://github.com/juanlotito/whatsapp-rust?branch=feat%2Foptional-pn-dm-addressing#a616adf4fa2566789978a6f55ce81c4b5f65eeb3"
 dependencies = [
  "anyhow",
  "bytemuck",
@@ -13928,8 +13926,7 @@ dependencies = [
 [[package]]
 name = "wacore-binary"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c32fb1fef070c94c1311d14b86787bdf70572ba0fae1e21874a0c97ec1f43b09"
+source = "git+https://github.com/juanlotito/whatsapp-rust?branch=feat%2Foptional-pn-dm-addressing#a616adf4fa2566789978a6f55ce81c4b5f65eeb3"
 dependencies = [
  "bytes",
  "compact_str",
@@ -13945,8 +13942,7 @@ dependencies = [
 [[package]]
 name = "wacore-derive"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "545b18eada5c7412083ccac83a7de3910521186dd513bab7d6d3b8dcb792ff1c"
+source = "git+https://github.com/juanlotito/whatsapp-rust?branch=feat%2Foptional-pn-dm-addressing#a616adf4fa2566789978a6f55ce81c4b5f65eeb3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -13956,8 +13952,7 @@ dependencies = [
 [[package]]
 name = "wacore-libsignal"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "924d8bb6009b53ac9d17b21c5bbe3fa92323c31e407c631e86d22799a0bb17b4"
+source = "git+https://github.com/juanlotito/whatsapp-rust?branch=feat%2Foptional-pn-dm-addressing#a616adf4fa2566789978a6f55ce81c4b5f65eeb3"
 dependencies = [
  "aes 0.9.0",
  "arrayref",
@@ -13989,8 +13984,7 @@ dependencies = [
 [[package]]
 name = "wacore-noise"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ac024824c3c475d0d82cce07850db8ff863d794299e95e2fab6878afcc7511c"
+source = "git+https://github.com/juanlotito/whatsapp-rust?branch=feat%2Foptional-pn-dm-addressing#a616adf4fa2566789978a6f55ce81c4b5f65eeb3"
 dependencies = [
  "anyhow",
  "bytes",
@@ -14033,8 +14027,7 @@ dependencies = [
 [[package]]
 name = "waproto"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6ad2a847ddec045108ef1d06db4c09d5ceecc4e75f4a0eb3f97f3baad9505f35"
+source = "git+https://github.com/juanlotito/whatsapp-rust?branch=feat%2Foptional-pn-dm-addressing#a616adf4fa2566789978a6f55ce81c4b5f65eeb3"
 dependencies = [
  "prost 0.14.3",
  "serde",
@@ -14822,8 +14815,7 @@ checksum = "a28ac98ddc8b9274cb41bb4d9d4d5c425b6020c50c46f25559911905610b4a88"
 [[package]]
 name = "whatsapp-rust"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "68e2491e3a5a4ae149d623da4dcaf05ee5feb7f0181b4be375e0980bb2247292"
+source = "git+https://github.com/juanlotito/whatsapp-rust?branch=feat%2Foptional-pn-dm-addressing#a616adf4fa2566789978a6f55ce81c4b5f65eeb3"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -14856,8 +14848,7 @@ dependencies = [
 [[package]]
 name = "whatsapp-rust-tokio-transport"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3581e247b0d408a5143d0825c679fa3409c0ca245a116daf1864ca0317803fec"
+source = "git+https://github.com/juanlotito/whatsapp-rust?branch=feat%2Foptional-pn-dm-addressing#a616adf4fa2566789978a6f55ce81c4b5f65eeb3"
 dependencies = [
  "anyhow",
  "async-channel",
@@ -14877,8 +14868,7 @@ dependencies = [
 [[package]]
 name = "whatsapp-rust-ureq-http-client"
 version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fa3d540b7e7a294cbd6a481b79e642e8ffc17f0088b7b04ab54ff0125f4a2cd4"
+source = "git+https://github.com/juanlotito/whatsapp-rust?branch=feat%2Foptional-pn-dm-addressing#a616adf4fa2566789978a6f55ce81c4b5f65eeb3"
 dependencies = [
  "anyhow",
  "async-trait",
