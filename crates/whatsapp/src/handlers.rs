@@ -732,11 +732,69 @@ async fn handle_video(
     }
 }
 
-/// Handle an inbound document message: dispatch with caption.
+/// Maximum inbound document size downloaded and persisted to disk.
+const MAX_DOCUMENT_BYTES: u64 = 25 * 1024 * 1024;
+
+/// Reduce an inbound document filename to a safe basename: strips any
+/// path components, replaces non-ASCII-alphanumeric characters (except
+/// `.`, `-`, `_`) with `_`, drops leading dots, and caps the length.
+fn sanitize_document_filename(raw: &str) -> String {
+    let base = raw.trim().rsplit(['/', '\\']).next().unwrap_or("").trim();
+    let sanitized: String = base
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || matches!(c, '.' | '-' | '_') {
+                c
+            } else {
+                '_'
+            }
+        })
+        .take(100)
+        .collect();
+    let sanitized = sanitized.trim_start_matches('.');
+    if sanitized.is_empty() {
+        "document".to_string()
+    } else {
+        sanitized.to_string()
+    }
+}
+
+/// Persist downloaded document bytes under `dir` with a timestamped,
+/// sanitized filename. Returns the absolute path of the stored file.
+async fn store_document_bytes(
+    dir: &std::path::Path,
+    filename: &str,
+    data: &[u8],
+) -> anyhow::Result<std::path::PathBuf> {
+    tokio::fs::create_dir_all(dir).await?;
+    let timestamp_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let path = dir.join(format!(
+        "{timestamp_ms}-{}",
+        sanitize_document_filename(filename)
+    ));
+    tokio::fs::write(&path, data).await?;
+    Ok(path)
+}
+
+/// The chat text dispatched for an inbound document, pointing the agent
+/// at the stored file (or explaining the failure).
+fn document_notice_text(caption: &str, filename: &str, mime: &str, outcome: &str) -> String {
+    if caption.is_empty() {
+        format!("[Document received: {filename} ({mime}) — {outcome}]")
+    } else {
+        format!("{caption}\n[Document: {filename} ({mime}) — {outcome}]")
+    }
+}
+
+/// Handle an inbound document message: download, persist under the data
+/// dir, and dispatch the stored path so the agent can read the file.
 #[allow(clippy::too_many_arguments)]
 async fn handle_document(
     msg: &wa::Message,
-    _client: &Client,
+    client: &Client,
     account_id: &str,
     reply_to: ChannelReplyTarget,
     meta: ChannelMessageMeta,
@@ -755,10 +813,41 @@ async fn handle_document(
 
     info!(account_id, filename, mime, "received document message");
 
-    let text = if caption.is_empty() {
-        format!("[Document received: {filename} ({mime})]")
+    let stored = if doc.file_length.unwrap_or(0) > MAX_DOCUMENT_BYTES {
+        Err(anyhow::anyhow!(
+            "document exceeds the {MAX_DOCUMENT_BYTES} byte download limit"
+        ))
     } else {
-        format!("{caption}\n[Document: {filename} ({mime})]")
+        match client.download(doc.as_ref()).await {
+            Ok(data) if data.len() as u64 > MAX_DOCUMENT_BYTES => Err(anyhow::anyhow!(
+                "document exceeds the {MAX_DOCUMENT_BYTES} byte download limit"
+            )),
+            Ok(data) => {
+                debug!(account_id, size = data.len(), %mime, "downloaded WhatsApp document");
+                let dir = moltis_config::data_dir()
+                    .join("media")
+                    .join("whatsapp")
+                    .join(account_id);
+                store_document_bytes(&dir, filename, &data).await
+            },
+            Err(e) => Err(e),
+        }
+    };
+
+    let text = match stored {
+        Ok(path) => {
+            info!(account_id, filename, path = %path.display(), "stored WhatsApp document");
+            document_notice_text(
+                &caption,
+                filename,
+                mime,
+                &format!("saved to {}; use the Read tool to view it", path.display()),
+            )
+        },
+        Err(e) => {
+            warn!(account_id, filename, error = %e, "failed to store WhatsApp document");
+            document_notice_text(&caption, filename, mime, "download failed")
+        },
     };
     if let Some(ref sink) = state.event_sink {
         sink.dispatch_to_chat(&text, reply_to, meta).await;
@@ -1172,6 +1261,60 @@ async fn handle_otp_flow(
 #[allow(clippy::unwrap_used)]
 mod tests {
     use {super::*, wacore::types::message::MessageSource};
+
+    #[test]
+    fn sanitize_document_filename_strips_paths_and_unsafe_chars() {
+        assert_eq!(
+            sanitize_document_filename("ERESUMEN  VISA (4).PDF"),
+            "ERESUMEN__VISA__4_.PDF"
+        );
+        assert_eq!(sanitize_document_filename("../../etc/passwd"), "passwd");
+        assert_eq!(
+            sanitize_document_filename("C:\\Users\\x\\doc.pdf"),
+            "doc.pdf"
+        );
+        assert_eq!(sanitize_document_filename(".hidden"), "hidden");
+        assert_eq!(sanitize_document_filename(""), "document");
+        assert_eq!(sanitize_document_filename("..."), "document");
+        // Length capped at 100 chars.
+        assert_eq!(sanitize_document_filename(&"a".repeat(200)).len(), 100);
+    }
+
+    #[tokio::test]
+    async fn store_document_bytes_writes_timestamped_file() {
+        let dir = tempfile::tempdir().expect("tempdir");
+        let nested = dir.path().join("media").join("whatsapp").join("main");
+
+        let path = store_document_bytes(&nested, "resumen.pdf", b"%PDF-1.4 test")
+            .await
+            .expect("store");
+
+        assert!(path.starts_with(&nested));
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .expect("file name");
+        assert!(name.ends_with("-resumen.pdf"), "unexpected name: {name}");
+        let stored = tokio::fs::read(&path).await.expect("read back");
+        assert_eq!(stored, b"%PDF-1.4 test");
+    }
+
+    #[test]
+    fn document_notice_text_includes_caption_and_outcome() {
+        assert_eq!(
+            document_notice_text(
+                "",
+                "a.pdf",
+                "application/pdf",
+                "saved to /x/a.pdf; use the Read tool to view it"
+            ),
+            "[Document received: a.pdf (application/pdf) — saved to /x/a.pdf; use the Read tool to view it]"
+        );
+        assert_eq!(
+            document_notice_text("mira esto", "a.pdf", "application/pdf", "download failed"),
+            "mira esto\n[Document: a.pdf (application/pdf) — download failed]"
+        );
+    }
 
     #[test]
     fn owner_self_chat_detected_without_is_from_me_when_sender_and_chat_are_owner() {
